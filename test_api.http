@@ -1,0 +1,43 @@
+# Test API Endpoints
+
+## Test Status Endpoint
+GET http://localhost:8000/status
+Content-Type: application/json
+
+###
+
+## Test Root Endpoint  
+GET http://localhost:8000/
+Content-Type: application/json
+
+###
+
+## Test Chat Endpoint
+POST http://localhost:8000/chat
+Content-Type: application/json
+
+{
+    "message": "Hello, how can you help me today?",
+    "thread_id": null,
+    "file": null
+}
+
+###
+
+## Test Chat Endpoint with Thread ID
+POST http://localhost:8000/chat
+Content-Type: application/json
+
+{
+    "message": "Can you tell me more about that?",
+    "thread_id": "your_thread_id_here",
+    "file": null
+}
+
+###
+
+## Test API Documentation
+GET http://localhost:8000/docs
+Content-Type: text/html
+
+###
