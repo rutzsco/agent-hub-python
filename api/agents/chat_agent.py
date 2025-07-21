@@ -1,4 +1,4 @@
-from models.api_models import Source, FileReference, ChatThreadRequest, RequestResult
+from ..models.api_models import Source, FileReference, ChatThreadRequest, RequestResult
 import os
 import uuid
 from typing import List, Optional
@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from opentelemetry import trace
 from azure.ai.projects import AIProjectClient
 from azure.storage.blob import BlobServiceClient
-from azure.identity import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential as SyncDefaultAzureCredential
 from azure.ai.agents.models import FileSearchTool
 
 from semantic_kernel.contents import (
@@ -20,31 +21,10 @@ from semantic_kernel.contents import (
 )
 from semantic_kernel.agents import AzureAIAgent, AzureAIAgentThread
 
-# Import models from the models folder
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
-def create_chat_message_content(user_message: str, file_content: Optional[str] = None,
-                                file_name: Optional[str] = None, ai_project_file=None) -> List[ChatMessageContent]:
-    """Create chat message content from user message and optional file"""
-    messages = []
-
-    # Add the user message
-    message_content = ChatMessageContent(role="user", content=user_message)
-
-    # If there's file content, add it to the message
-    if file_content and file_name:
-        message_content.content += f"\n\nFile content from {file_name}:\n{file_content}"
-
-    messages.append(message_content)
-    return messages
+from ..utils.file_utils import download_and_process_file, create_chat_message_content
 
 
 class ChatAgentService:
-    """Chat Agent Service for handling AI agent interactions"""
-
     def __init__(self):
         load_dotenv()
 
@@ -55,12 +35,6 @@ class ChatAgentService:
         if blob_connection_string:
             self.blob_service_client = BlobServiceClient.from_connection_string(
                 blob_connection_string)
-
-    async def download_and_process_file(self, blob_service_client, file_path: str):
-        """Download and process file from blob storage"""
-        # This is a placeholder implementation
-        # You would implement the actual file download logic here
-        return None, None
 
     async def run_chat_sk(self, request: ChatThreadRequest) -> RequestResult:
         """Run chat with Semantic Kernel agent"""
@@ -77,12 +51,12 @@ class ChatAgentService:
             file_content = None
             ai_project_file = None
             if request.file and self.blob_service_client:
-                file_content, ai_project_file = await self.download_and_process_file(
+                file_content, ai_project_file = await download_and_process_file(
                     self.blob_service_client, request.file
                 )
 
             # Define a list to hold callback message content
-            intermediate_steps: List[str] = []
+            intermediate_steps: list[str] = []
 
             async def handle_intermediate_steps(message: ChatMessageContent) -> None:
                 print("handle_intermediate_steps")
@@ -98,13 +72,14 @@ class ChatAgentService:
                     print(f"{message.role}: {message.content}")
 
             creds = DefaultAzureCredential()
-
             async with (AzureAIAgent.create_client(credential=creds) as client,):
-                # Create an agent on the Azure AI agent service
+                # Create an agent on the Azure AI agent service. Create a Semantic Kernel agent for the Azure AI agent
+                if not self.agent_id:
+                    raise ValueError("AZURE_AI_AGENT_ID is not set")
                 agent_definition = await client.agents.get_agent(agent_id=self.agent_id)
                 agent = AzureAIAgent(
                     client=client, definition=agent_definition)
-                thread: AzureAIAgentThread = None
+                thread: Optional[AzureAIAgentThread] = None
 
                 if request.thread_id:
                     thread = AzureAIAgentThread(
@@ -113,7 +88,7 @@ class ChatAgentService:
                 if ai_project_file:
                     try:
                         project_client = AIProjectClient(
-                            credential=DefaultAzureCredential(),
+                            credential=SyncDefaultAzureCredential(),
                             endpoint=os.environ["AZURE_AI_AGENT_ENDPOINT"]
                         )
 
@@ -127,7 +102,7 @@ class ChatAgentService:
                                     f"Creating new vector store with file ID: {ai_project_file.id}")
                                 vector_store = project_client.agents.vector_stores.create_and_poll(
                                     file_ids=[ai_project_file.id],
-                                    name=f"agent_hub_vs_{uuid.uuid4()}"
+                                    name=f"rutzsco_paif_vs_{uuid.uuid4()}"
                                 )
                                 print(
                                     f"Created vector store with ID: {vector_store.id}")
@@ -183,7 +158,7 @@ class ChatAgentService:
                                         f"Creating new vector store with file ID: {ai_project_file.id}")
                                     vector_store = project_client.agents.vector_stores.create_and_poll(
                                         file_ids=[ai_project_file.id],
-                                        name=f"agent_hub_vs_{uuid.uuid4()}"
+                                        name=f"rutzsco_paif_vs_{uuid.uuid4()}"
                                     )
                                     print(
                                         f"Created vector store with ID: {vector_store.id}")
@@ -201,8 +176,8 @@ class ChatAgentService:
                     except Exception as e:
                         print(f"Error setting up vector store: {e}")
 
-                annotations: List[StreamingAnnotationContent] = []
-                files: List[StreamingFileReferenceContent] = []
+                annotations: list[StreamingAnnotationContent] = []
+                files: list[StreamingFileReferenceContent] = []
                 sources = []
                 file_references = []
                 responseContent = ''
@@ -218,7 +193,7 @@ class ChatAgentService:
                     )
 
                     async for result in agent.invoke_stream(
-                        messages=cmc,
+                        messages=cmc[0] if cmc else user_message,
                         thread=thread,
                         on_intermediate_message=handle_intermediate_steps
                     ):
@@ -245,24 +220,27 @@ class ChatAgentService:
                                     result.message.content):
                                 code_output_content += result.message.content
 
-                    thread = response.thread
+                    thread = response.thread  # type: ignore
 
                     # Extract annotations from the ChatMessageContent response
                     for item in annotations:
                         source = Source(
-                            quote=item.quote if hasattr(item, 'quote') else '',
-                            title=item.title if hasattr(item, 'title') else '',
-                            url=item.url if hasattr(item, 'url') else '',
-                            start_index=item.start_index if hasattr(
-                                item, 'start_index') else '',
-                            end_index=item.end_index if hasattr(
-                                item, 'end_index') else ''
+                            quote=item.quote if hasattr(
+                                item, 'quote') and item.quote else '',
+                            title=item.title if hasattr(
+                                item, 'title') and item.title else '',
+                            url=item.url if hasattr(
+                                item, 'url') and item.url else '',
+                            start_index=str(item.start_index) if hasattr(
+                                item, 'start_index') and item.start_index is not None else '',
+                            end_index=str(item.end_index) if hasattr(
+                                item, 'end_index') and item.end_index is not None else ''
                         )
                         sources.append(source)
 
                     for item in files:
                         fr = FileReference(
-                            id=item.file_id if hasattr(item, 'file_id') else '')
+                            id=item.file_id if hasattr(item, 'file_id') and item.file_id else '')
                         file_references.append(fr)
 
                 finally:
@@ -273,7 +251,7 @@ class ChatAgentService:
                     sources=sources,
                     files=file_references,
                     intermediate_steps=intermediate_steps,
-                    thread_id=thread.id,
+                    thread_id=thread.id if thread and thread.id else "",
                     code_content=code_output_content.strip()
                 )
 

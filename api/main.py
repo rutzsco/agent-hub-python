@@ -1,12 +1,7 @@
-from models.api_models import ChatRequest, ChatResponse, ChatThreadRequest
-from agents.chat_agent import ChatAgentService
+from .models.api_models import ChatRequest, ChatResponse, ChatThreadRequest
+from .agents.chat_agent import ChatAgentService
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-import sys
-import os
-
-# Add the parent directory to the path so we can import from agents and models
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 app = FastAPI(

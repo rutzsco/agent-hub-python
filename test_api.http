@@ -17,9 +17,7 @@ POST http://localhost:8000/chat
 Content-Type: application/json
 
 {
-    "message": "Hello, how can you help me today?",
-    "thread_id": null,
-    "file": null
+    "message": "What is the capital on Minnesota?"
 }
 
 ###
