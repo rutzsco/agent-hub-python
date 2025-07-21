@@ -4,14 +4,19 @@ FROM python:3.13-slim
 # Set working directory
 WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv for dependency management
 RUN pip install uv
 
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml ./
 
-# Install dependencies
-RUN uv sync --frozen
+# Install dependencies (without lock file to avoid platform compatibility issues)
+RUN uv sync
 
 # Copy source code
 COPY . .
