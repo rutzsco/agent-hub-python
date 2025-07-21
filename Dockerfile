@@ -1,28 +1,16 @@
-# Use Python 3.13 slim image
-FROM python:3.13-slim
+# Use Python 3.12 slim image
+FROM python:3.12-slim
 
-# Set working directory
+# Install security updates to reduce vulnerabilities
+RUN apt-get update && apt-get upgrade -y && apt-get clean
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install uv for dependency management
-RUN pip install uv
-
-# Copy dependency files
-COPY pyproject.toml ./
-
-# Install dependencies (without lock file to avoid platform compatibility issues)
-RUN uv sync
-
-# Copy source code
 COPY . .
 
-# Expose port 8000
 EXPOSE 8000
 
-# Run the application
-CMD ["uv", "run", "python", "main.py"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
