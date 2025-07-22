@@ -1,4 +1,4 @@
-name: Build and Push Container Image
+name: Build, Push and Deploy to Azure Container Apps
 
 on:
   # Run on pushes to the main branch
@@ -11,7 +11,7 @@ on:
       - 'main'
 
 jobs:
-  build-and-push:
+  build-push-deploy:
     runs-on: ubuntu-latest
     # Grant permissions for the login action to authenticate
     permissions:
@@ -61,3 +61,31 @@ jobs:
         run: |
           echo "Image pushed: ${{ steps.build-and-push.outputs.imageid }}"
           echo "Tags: ${{ steps.meta.outputs.tags }}"
+
+      # Deploy to Azure Container Apps (only on pushes to main)
+      - name: Log in to Azure
+        if: github.event_name == 'push' && github.ref_name == 'main'
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps
+        if: github.event_name == 'push' && github.ref_name == 'main'
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          # Azure Container App details
+          containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
+          # Use the latest tag for the image that was just built and pushed
+          imageToDeploy: ${{ vars.CONTAINER_REGISTRY_URL }}/${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}:latest
+          # Optional: Azure Container Registry credentials (if using ACR and not already logged in)
+          acrName: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
+          acrUsername: ${{ secrets.DOCKER_USERNAME }}
+          acrPassword: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Echo deployment details
+        if: github.event_name == 'push' && github.ref_name == 'main'
+        run: |
+          echo "Deployed to Azure Container App: ${{ vars.AZURE_CONTAINER_APP_NAME }}"
+          echo "Resource Group: ${{ vars.AZURE_RESOURCE_GROUP }}"
+          echo "Image: ${{ vars.CONTAINER_REGISTRY_URL }}/${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}:latest"
