@@ -1,7 +1,9 @@
 from .models.api_models import ChatRequest, ChatResponse, ChatThreadRequest
 from .agents.chat_agent import ChatAgentService
+from .agents.image_analysis_agent import ImageAnalysisAgent
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import json
 
 
 app = FastAPI(
@@ -10,8 +12,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Initialize the chat agent service
+# Initialize the agent services
 chat_agent_service = ChatAgentService()
+image_analysis_agent = ImageAnalysisAgent()
 
 
 @app.get("/status")
@@ -38,6 +41,7 @@ async def root():
         "message": "Welcome to Agent Hub Python API",
         "status_endpoint": "/status",
         "chat_endpoint": "/chat",
+        "image_analysis_endpoint": "/image-analysis",
         "docs": "/docs"
     }
 
@@ -52,7 +56,8 @@ async def chat_with_agent(request: ChatRequest):
         chat_request = ChatThreadRequest(
             message=request.message,
             thread_id=request.thread_id,
-            file=request.file
+            file=request.file,
+            files=request.files
         )
 
         # Call the chat agent service
@@ -72,6 +77,49 @@ async def chat_with_agent(request: ChatRequest):
             files=[{"id": file_ref.id} for file_ref in result.files],
             intermediate_steps=result.intermediate_steps,
             code_content=result.code_content
+        )
+
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@app.post("/image-analysis")
+async def analyze_images(request: ChatRequest):
+    """
+    Analyze images for serial number extraction from equipment labels.
+    """
+    try:
+        # Validate that images are provided
+        if not request.files:
+            raise ValueError("No images provided for analysis")
+
+        # Create the chat thread request
+        analysis_request = ChatThreadRequest(
+            message=request.message,
+            thread_id=request.thread_id,
+            files=request.files
+        )
+
+        # Stream the analysis results
+        async def generate_response():
+            full_response = ""
+            async for chunk in image_analysis_agent.analyze_images(analysis_request):
+                full_response += chunk
+                yield f"data: {json.dumps({'content': chunk, 'type': 'text'})}\n\n"
+
+            # Send final response
+            yield f"data: {json.dumps({'content': '', 'type': 'end', 'full_response': full_response})}\n\n"
+
+        return StreamingResponse(
+            generate_response(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
         )
 
     except ValueError as ve:

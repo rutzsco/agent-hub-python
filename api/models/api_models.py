@@ -16,11 +16,19 @@ class FileReference(BaseModel):
     id: str = ''
 
 
+class ImageFile(BaseModel):
+    """Model for image file data"""
+    name: str
+    data_url: Optional[str] = None
+    blob_name: Optional[str] = None
+
+
 class ChatThreadRequest(BaseModel):
     """Model for chat thread request"""
     message: str
     thread_id: Optional[str] = None
     file: Optional[str] = None
+    files: Optional[List[ImageFile]] = None
 
 
 class RequestResult(BaseModel):
@@ -38,6 +46,7 @@ class ChatRequest(BaseModel):
     message: str
     thread_id: Optional[str] = None
     file: Optional[str] = None
+    files: Optional[List[ImageFile]] = None
 
 
 class ChatResponse(BaseModel):

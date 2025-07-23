@@ -1,0 +1,73 @@
+### Image Analysis Agent - Test API Calls
+
+# Test 1: Basic image analysis with a sample equipment label image
+POST http://localhost:8000/image-analysis
+Content-Type: application/json
+
+{
+  "message": "Please extract the serial number and any other identifying information from this equipment label",
+  "files": [
+    {
+      "name": "equipment_label.jpg",
+      "data_url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/AB8A"
+    }
+  ]
+}
+
+###
+
+# Test 2: Image analysis without files (should return error message)
+POST http://localhost:8000/image-analysis
+Content-Type: application/json
+
+{
+  "message": "Extract serial numbers from equipment labels"
+}
+
+###
+
+# Test 3: Multiple images analysis
+POST http://localhost:8000/image-analysis
+Content-Type: application/json
+
+{
+  "message": "Analyze these equipment labels and extract all serial numbers, model numbers, and part numbers",
+  "files": [
+    {
+      "name": "front_label.jpg",
+      "data_url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/AB8A"
+    },
+    {
+      "name": "side_label.jpg", 
+      "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+    }
+  ]
+}
+
+###
+
+# Test 4: Using Azure Blob Storage reference (requires AZURE_BLOB_CONNECTION_STRING)
+POST http://localhost:8000/image-analysis
+Content-Type: application/json
+
+{
+  "message": "Extract equipment information from this label stored in blob storage",
+  "files": [
+    {
+      "name": "equipment_nameplate.jpg",
+      "blob_name": "images/equipment_nameplate.jpg"
+    }
+  ]
+}
+
+###
+
+# Test 5: Check status endpoint
+GET http://localhost:8000/status
+
+###
+
+# Test 6: Check root endpoint for available endpoints
+GET http://localhost:8000/
+
+###
