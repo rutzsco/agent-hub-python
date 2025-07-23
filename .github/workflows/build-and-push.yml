@@ -1,22 +1,16 @@
 name: Build, Push and Deploy to Azure Container Apps
 
 on:
-  # Run on pushes to the main branch
   push:
     branches:
       - 'main'
-  # Also run on pull requests targeting the main branch to validate the build
-  pull_request:
-    branches:
-      - 'main'
-      
+
 permissions:
   id-token: write
   contents: read
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
-    # Grant permissions for the login action to authenticate
     permissions:
       contents: read
       packages: write # or your specific registry permissions
@@ -28,9 +22,7 @@ jobs:
       - name: Log in to the Container Registry
         uses: docker/login-action@v3
         with:
-          # Use the URL of your container registry
           registry: ${{ vars.CONTAINER_REGISTRY_URL }}
-          # Use secrets for credentials
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
