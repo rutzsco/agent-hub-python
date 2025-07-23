@@ -9,6 +9,7 @@ import openai
 from openai import AzureOpenAI
 
 from ..models.api_models import ChatThreadRequest, ImageFile
+from .agent_utils import AgentUtils
 
 
 class ImageAnalysisAgent:
@@ -18,6 +19,7 @@ class ImageAnalysisAgent:
         load_dotenv()
 
         self.logger = logging.getLogger(__name__)
+        self.agent_utils = AgentUtils()
 
         # Azure OpenAI configuration
         self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -34,8 +36,8 @@ class ImageAnalysisAgent:
                 blob_connection_string
             )
 
-        # Initialize Azure OpenAI client
-        if not self.azure_openai_endpoint or not self.azure_openai_api_key:
+        # Validate and initialize Azure OpenAI client
+        if not self.agent_utils.validate_azure_openai_config(self.azure_openai_endpoint, self.azure_openai_api_key):
             raise ValueError(
                 "Azure OpenAI endpoint and API key must be configured")
 
@@ -45,23 +47,20 @@ class ImageAnalysisAgent:
             api_version=self.azure_openai_api_version
         )
 
+        # Log initialization details
+        config_details = {
+            "Azure OpenAI Endpoint": self.azure_openai_endpoint,
+            "Azure OpenAI API Key": self.azure_openai_api_key,
+            "API Version": self.azure_openai_api_version,
+            "Chat Deployment": self.chat_deployment_name,
+            "Blob Container": self.blob_container_name,
+            "Blob Storage Configured": bool(self.blob_service_client)
+        }
+        self.agent_utils.log_agent_initialization("ImageAnalysisAgent", config_details)
+
     def _get_system_prompt(self) -> str:
         """Get the system prompt for image analysis"""
-        try:
-            # Get the directory of the current file
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            prompt_file_path = os.path.join(current_dir, "prompts", "image_analysis_system_prompt.txt")
-            
-            with open(prompt_file_path, 'r', encoding='utf-8') as file:
-                return file.read().strip()
-        except FileNotFoundError:
-            self.logger.error(f"System prompt file not found at {prompt_file_path}")
-            # Fallback to a basic prompt
-            return "You are an expert image analysis agent specialized in extracting serial numbers from equipment labels and plates."
-        except Exception as e:
-            self.logger.error(f"Error reading system prompt file: {e}")
-            # Fallback to a basic prompt
-            return "You are an expert image analysis agent specialized in extracting serial numbers from equipment labels and plates."
+        return self.agent_utils.get_system_prompt("image_analysis_system_prompt.txt")
 
     async def _process_image_file(self, image_file: ImageFile) -> Optional[tuple[bytes, str]]:
         """Process an image file and return image data and media type"""

@@ -22,12 +22,14 @@ from semantic_kernel.contents import (
 from semantic_kernel.agents import AzureAIAgent, AzureAIAgentThread
 
 from ..utils.file_utils import download_and_process_file, create_chat_message_content
+from .agent_utils import AgentUtils
 
 
 class ChatAgentService:
     def __init__(self):
         load_dotenv()
 
+        self.agent_utils = AgentUtils()
         self.agent_id = os.getenv("AZURE_AI_AGENT_ID")
         blob_connection_string = os.getenv("AZURE_BLOB_CONNECTION_STRING")
         self.blob_service_client = None
@@ -35,6 +37,14 @@ class ChatAgentService:
         if blob_connection_string:
             self.blob_service_client = BlobServiceClient.from_connection_string(
                 blob_connection_string)
+
+        # Log initialization details
+        config_details = {
+            "Agent ID": self.agent_id,
+            "Blob Connection String": blob_connection_string,
+            "Blob Storage Configured": bool(self.blob_service_client)
+        }
+        self.agent_utils.log_agent_initialization("ChatAgentService", config_details)
 
     async def run_chat_sk(self, request: ChatThreadRequest) -> RequestResult:
         """Run chat with Semantic Kernel agent"""
