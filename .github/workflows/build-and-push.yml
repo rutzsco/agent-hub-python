@@ -8,12 +8,11 @@ on:
 permissions:
   id-token: write
   contents: read
+  packages: write
+
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write # or your specific registry permissions
 
     steps:
       - name: Checkout repository
@@ -74,10 +73,7 @@ jobs:
           # Azure Container App details
           containerAppName: ${{ vars.AZURE_CONTAINER_APP_NAME }}
           resourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
-          # Use the latest tag for the image that was just built and pushed
           imageToDeploy: ${{ vars.CONTAINER_REGISTRY_URL }}/${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}:latest
-          # Optional: Azure Container Registry credentials (if using ACR and not already logged in)
-          acrName: ${{ vars.AZURE_CONTAINER_REGISTRY_NAME }}
           acrUsername: ${{ secrets.DOCKER_USERNAME }}
           acrPassword: ${{ secrets.DOCKER_PASSWORD }}
 
