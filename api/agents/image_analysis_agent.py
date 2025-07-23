@@ -47,29 +47,21 @@ class ImageAnalysisAgent:
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for image analysis"""
-        return """You are an expert image analysis agent specialized in extracting serial numbers from equipment labels and plates.
-
-Your primary task is to:
-1. Analyze images of equipment, machinery, or devices
-2. Identify and extract serial numbers, model numbers, and part numbers from labels, nameplates, or stickers
-3. Provide accurate transcription of alphanumeric codes
-4. Note the location and context of the identified numbers
-
-When analyzing images:
-- Look for metallic plates, adhesive labels, engraved text, or printed information
-- Pay attention to common label formats (barcode labels, QR codes with text, manufacturer plates)
-- Extract all visible serial numbers, model numbers, part numbers, and asset tags
-- If text is partially obscured or unclear, indicate uncertainty
-- Provide the extracted information in a structured format
-
-Response format:
-- Serial Number: [extracted number]
-- Model Number: [if visible]
-- Part Number: [if visible]
-- Manufacturer: [if visible]
-- Additional Notes: [any relevant observations]
-
-If no serial numbers are visible or the image quality is insufficient, clearly state this limitation."""
+        try:
+            # Get the directory of the current file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            prompt_file_path = os.path.join(current_dir, "prompts", "image_analysis_system_prompt.txt")
+            
+            with open(prompt_file_path, 'r', encoding='utf-8') as file:
+                return file.read().strip()
+        except FileNotFoundError:
+            self.logger.error(f"System prompt file not found at {prompt_file_path}")
+            # Fallback to a basic prompt
+            return "You are an expert image analysis agent specialized in extracting serial numbers from equipment labels and plates."
+        except Exception as e:
+            self.logger.error(f"Error reading system prompt file: {e}")
+            # Fallback to a basic prompt
+            return "You are an expert image analysis agent specialized in extracting serial numbers from equipment labels and plates."
 
     async def _process_image_file(self, image_file: ImageFile) -> Optional[tuple[bytes, str]]:
         """Process an image file and return image data and media type"""
