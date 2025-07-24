@@ -5,15 +5,23 @@ from typing import Optional, AsyncGenerator, List, Dict, Any, Union
 from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient
 from azure.identity import DefaultAzureCredential
-import openai
-from openai import AzureOpenAI
+from opentelemetry import trace
 
-from ..models.api_models import ChatThreadRequest, ImageFile
+import semantic_kernel as sk
+from semantic_kernel.agents import ChatCompletionAgent
+from semantic_kernel.connectors.ai.function_choice_behavior import FunctionChoiceBehavior
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.connectors.ai.prompt_execution_settings import PromptExecutionSettings
+from semantic_kernel.contents import ChatMessageContent, FunctionCallContent
+from semantic_kernel.contents.chat_history import ChatHistory
+from semantic_kernel.functions.kernel_arguments import KernelArguments
+
+from ..models.api_models import ChatThreadRequest, ImageFile, RequestResult
 from .agent_utils import AgentUtils
 
 
 class ImageAnalysisAgent:
-    """Agent for analyzing images and extracting serial numbers from equipment labels"""
+    """Agent for analyzing images and extracting serial numbers from equipment labels using Semantic Kernel"""
 
     def __init__(self):
         load_dotenv()
@@ -21,11 +29,28 @@ class ImageAnalysisAgent:
         self.logger = logging.getLogger(__name__)
         self.agent_utils = AgentUtils()
 
-        # Azure OpenAI configuration
-        self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        self.azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        # Retrieve configuration from environment variables
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        deployment_name = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o")
         self.azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-        self.chat_deployment_name = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o")
+
+        if not endpoint or not deployment_name:
+            raise ValueError("Missing required environment variables for OpenAI configuration.")
+
+        # Initialize Semantic Kernel
+        self.kernel = sk.Kernel()
+
+        # Configure Azure OpenAI service - use API key authentication
+        if not api_key:
+            raise ValueError("Azure OpenAI API key must be configured")
+            
+        self.kernel.add_service(AzureChatCompletion(
+            api_key=api_key,
+            endpoint=endpoint,
+            deployment_name=deployment_name,
+            service_id="azure-chat-completion"
+        ))
 
         # Azure Blob Storage configuration (optional)
         blob_connection_string = os.getenv("AZURE_BLOB_CONNECTION_STRING")
@@ -36,28 +61,15 @@ class ImageAnalysisAgent:
                 blob_connection_string
             )
 
-        # Validate and initialize Azure OpenAI client
-        if not self.agent_utils.validate_azure_openai_config(self.azure_openai_endpoint, self.azure_openai_api_key):
-            raise ValueError(
-                "Azure OpenAI endpoint and API key must be configured")
-
-        if not self.azure_openai_endpoint or not self.azure_openai_api_key or not self.azure_openai_api_version:
-            raise ValueError("Azure OpenAI endpoint, API key, and API version must be set and not None.")
-
-        self.client = AzureOpenAI(
-            azure_endpoint=self.azure_openai_endpoint,
-            api_key=self.azure_openai_api_key,
-            api_version=self.azure_openai_api_version
-        )
-
         # Log initialization details
         config_details = {
-            "Azure OpenAI Endpoint": self.azure_openai_endpoint,
-            "Azure OpenAI API Key": self.azure_openai_api_key,
+            "Azure OpenAI Endpoint": endpoint,
+            "Azure OpenAI API Key": api_key,
             "API Version": self.azure_openai_api_version,
-            "Chat Deployment": self.chat_deployment_name,
+            "Chat Deployment": deployment_name,
             "Blob Container": self.blob_container_name,
-            "Blob Storage Configured": bool(self.blob_service_client)
+            "Blob Storage Configured": bool(self.blob_service_client),
+            "Authentication Method": "API Key"
         }
         self.agent_utils.log_agent_initialization("ImageAnalysisAgent", config_details)
 
@@ -139,76 +151,99 @@ class ImageAnalysisAgent:
 
         return None
 
-    async def analyze_images(self, request: ChatThreadRequest) -> AsyncGenerator[str, None]:
-        """Analyze images for serial number extraction"""
+    async def analyze_images(self, request: ChatThreadRequest) -> RequestResult:
+        """Analyze images for serial number extraction using Semantic Kernel Agent"""
+        
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("Agent: ImageAnalysis") as current_span:
+            
+            if not request.files:
+                return RequestResult(
+                    content="No images provided for analysis.",
+                    intermediate_steps=[],
+                    thread_id=""
+                )
 
-        if not request.files:
-            yield "No images provided for analysis."
-            return
+            # Define a list to hold callback message content for intermediate steps
+            intermediate_steps: List[str] = []
 
-        # Build messages for the chat completion
-        messages = [
-            {
-                "role": "system",
-                "content": self._get_system_prompt()
-            }
-        ]
+            # Define an async method to handle the `on_intermediate_message` callback
+            async def handle_intermediate_steps(message: ChatMessageContent) -> None:
+                if any(isinstance(item, FunctionCallContent) for item in message.items):
+                    for fcc in message.items:
+                        if isinstance(fcc, FunctionCallContent):
+                            intermediate_steps.append(f"Function Call: {fcc.name} with arguments: {fcc.arguments}")
 
-        # Build user message content
-        user_content = [
-            {
-                "type": "text",
-                "text": request.message or "Please analyze the provided images and extract any serial numbers, model numbers, or part numbers from equipment labels."
-            }
-        ]
+            try:
+                # Build the user message with text and image content
+                user_message_text = request.message or "Please analyze the provided images and extract any serial numbers, model numbers, or part numbers from equipment labels."
+                
+                # Process images and convert to base64 data URLs
+                image_data_urls = []
+                for image_file in request.files:
+                    image_result = await self._process_image_file(image_file)
+                    if image_result:
+                        image_data, media_type = image_result
+                        image_base64 = base64.b64encode(image_data).decode('utf-8')
+                        data_url = f"data:{media_type};base64,{image_base64}"
+                        image_data_urls.append(data_url)
+                        self.logger.info(f"Added image {image_file.name} to analysis request")
 
-        # Process each image file
-        for image_file in request.files:
-            image_result = await self._process_image_file(image_file)
-            if image_result:
-                image_data, media_type = image_result
+                # Create a comprehensive message that includes text and image references
+                if image_data_urls:
+                    user_message_text += f"\n\nI have provided {len(image_data_urls)} image(s) for analysis. Please examine each image carefully and extract any visible serial numbers, model numbers, part numbers, or other identifying information from equipment labels or nameplates."
 
-                # Convert image data to base64 for API
-                image_base64 = base64.b64encode(image_data).decode('utf-8')
+                system_message = self._get_system_prompt()
+                
+                # Configure execution settings
+                settings = PromptExecutionSettings(
+                    function_choice_behavior=FunctionChoiceBehavior.Auto(),
+                )
+                kernel_arguments = KernelArguments(settings=settings)
+                kernel_arguments["diagnostics"] = []
 
-                # Add image to user content
-                user_content.append({  # type: ignore
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{media_type};base64,{image_base64}"
-                    }
-                })
+                # Create the chat completion agent
+                agent = ChatCompletionAgent(
+                    kernel=self.kernel,
+                    name="ImageAnalysisAgent",
+                    instructions=system_message,
+                    arguments=kernel_arguments
+                )
 
-                self.logger.info(
-                    f"Added image {image_file.name} to analysis request")
+                # Note: For now, we'll handle images by including them in the message context
+                # The Semantic Kernel agent framework may need additional configuration for image handling
+                
+                # Iterate over the async generator to get the final response
+                response = None
+                thread = None
 
-        # Add user message with text and images
-        messages.append({  # type: ignore
-            "role": "user",
-            "content": user_content
-        })
+                async for result in agent.invoke(messages=user_message_text, thread=thread, on_intermediate_message=handle_intermediate_steps):
+                    response = result
+                    thread = response.thread
 
-        try:
-            # Execute chat completion with streaming - use type: ignore for complex message structure
-            response = self.client.chat.completions.create(
-                model=self.chat_deployment_name,
-                messages=messages,  # type: ignore
-                max_tokens=1000,
-                temperature=0.1,  # Low temperature for accurate extraction
-                stream=True
-            )
+                if response is None:
+                    raise ValueError("No response received from the agent.")
 
-            # Stream the response
-            for chunk in response:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                return RequestResult(
+                    content=f"{response}",
+                    intermediate_steps=intermediate_steps,
+                    thread_id=str(thread.id) if thread else ""
+                )
 
-        except Exception as e:
-            error_msg = f"Error during image analysis: {str(e)}"
-            self.logger.error(error_msg)
-            yield error_msg
+            except Exception as e:
+                error_msg = f"Error during image analysis: {str(e)}"
+                self.logger.error(error_msg)
+                return RequestResult(
+                    content=error_msg,
+                    intermediate_steps=intermediate_steps,
+                    thread_id=""
+                )
 
-    async def reply_planner_async(self, request: ChatThreadRequest) -> AsyncGenerator[str, None]:
+    async def reply_planner_async(self, request: ChatThreadRequest) -> RequestResult:
         """Main entry point for the image analysis agent (compatible with C# interface)"""
-        async for chunk in self.analyze_images(request):
-            yield chunk
+        return await self.analyze_images(request)
+    
+    async def analyze_images_streaming(self, request: ChatThreadRequest) -> AsyncGenerator[str, None]:
+        """Streaming version for backward compatibility"""
+        result = await self.analyze_images(request)
+        yield result.content

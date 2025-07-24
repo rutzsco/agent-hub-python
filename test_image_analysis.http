@@ -54,8 +54,8 @@ Content-Type: application/json
   "message": "Extract equipment information from this label stored in blob storage",
   "files": [
     {
-      "name": "equipment_nameplate.jpg",
-      "blob_name": "images/equipment_nameplate.jpg"
+      "name": "label1.jpeg",
+      "blob_name": "label1.jpeg"
     }
   ]
 }
