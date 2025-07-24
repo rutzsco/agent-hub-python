@@ -41,6 +41,9 @@ class ImageAnalysisAgent:
             raise ValueError(
                 "Azure OpenAI endpoint and API key must be configured")
 
+        if not self.azure_openai_endpoint or not self.azure_openai_api_key or not self.azure_openai_api_version:
+            raise ValueError("Azure OpenAI endpoint, API key, and API version must be set and not None.")
+
         self.client = AzureOpenAI(
             azure_endpoint=self.azure_openai_endpoint,
             api_key=self.azure_openai_api_key,
